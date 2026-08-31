@@ -10,6 +10,8 @@
 
 Sequence diagram antar host app, SDK, REST API, WebSocket, backend, dan agent tersedia di `LIVE_CHAT_SEQUENCE_DIAGRAM.md`.
 
+**Flutter version management:** FVM
+
 ---
 
 ## 1. Purpose
@@ -86,6 +88,53 @@ live_chat_sdk/
 Public export hanya melalui `lib/live_chat_sdk.dart`. Class internal tidak boleh di-import oleh aplikasi host melalui path `src`.
 
 UI component mengikuti `LIVE_CHAT_UI_DESIGN.md` dan guideline component internal. Tabs dibuat sebagai custom component internal tanpa library eksternal; bubble menggunakan renderer berdasarkan content type agar dapat diperluas.
+
+### 4.1 Project Type and Runnable Host
+
+Repository ini menggunakan **Flutter package project**, bukan Flutter application project biasa.
+
+Perbedaannya:
+
+| Flutter app biasa | Live Chat SDK repository |
+|---|---|
+| Root memiliki `lib/main.dart` | Root memiliki public package API dan source SDK |
+| Root dapat langsung menjalankan `flutter run` | Root package tidak dijalankan sebagai aplikasi |
+| UI dan business flow milik satu aplikasi | SDK dipakai oleh banyak aplikasi host |
+| Android/iOS folders berada di root | Android/iOS runner berada di `example/` |
+| Tidak selalu punya example app | Wajib memiliki `example/` sebagai development host |
+
+Struktur runtime:
+
+```text
+live_chat_sdk/
+├── lib/                  # Source SDK dan public API
+├── test/                 # Unit/widget/golden tests package
+├── integration_test/    # Test flow example/host bila diperlukan
+├── example/              # Flutter application yang menjalankan SDK
+│   ├── android/
+│   ├── ios/
+│   ├── lib/main.dart
+│   └── pubspec.yaml
+├── pubspec.yaml
+└── .fvmrc
+```
+
+SDK awal tetap berupa Flutter/Dart package meskipun menggunakan dependency plugin seperti image picker, file picker, dan local notification. Repository baru perlu menjadi Flutter plugin hanya jika kita menulis native platform code sendiri.
+
+#### FVM commands
+
+```bash
+fvm install
+fvm flutter pub get
+fvm flutter test
+fvm flutter analyze
+
+cd example
+fvm flutter pub get
+fvm flutter run
+```
+
+`example/` berfungsi sebagai host app development untuk mock auth, preview UI, mock/live API environment, dan pengujian Android/iOS. Aplikasi kantor yang sebenarnya menjadi host terpisah pada tahap integrasi.
 
 ## 5. Layered Architecture
 
@@ -500,6 +549,56 @@ UI memetakan error menjadi pesan user-friendly, sedangkan detail teknis hanya te
 - WebSocket tidak dijadikan mekanisme background notification.
 - Local notification foreground menggunakan `flutter_local_notifications`.
 - Android notification permission/channel dan iOS notification permission harus dikonfigurasi oleh aplikasi host.
+
+### 17.1 One-time SDK installation per host app
+
+Setiap aplikasi Flutter yang memakai SDK cukup menambahkan dependency satu kali pada `pubspec.yaml`. Semua fitur SDK kemudian dapat digunakan dari berbagai halaman/feature di aplikasi tersebut tanpa memasang dependency ulang.
+
+```yaml
+dependencies:
+  live_chat_sdk:
+    git:
+      url: git@github.com:nunutech40/livechatmobileappnative.git
+```
+
+Dependency yang sama tetap perlu di-resolve pada setiap aplikasi host yang berbeda. Konfigurasi native juga berlaku per aplikasi host, bukan satu kali secara global untuk seluruh kantor.
+
+### 17.2 Android configuration
+
+Konfigurasi yang perlu disiapkan sesuai fitur yang dipakai:
+
+| Kebutuhan | Konfigurasi Android |
+|---|---|
+| Local notification | Notification channel dan permission `POST_NOTIFICATIONS` pada Android 13+ |
+| Camera | Camera permission bila user memilih ambil foto dari kamera |
+| Gallery/photo | Permission mengikuti versi Android dan implementation picker |
+| File | File picker/provider configuration bila diperlukan |
+| HTTPS/WSS | Tidak boleh memakai cleartext HTTP/WS untuk environment production |
+
+### 17.3 iOS configuration
+
+Konfigurasi yang perlu disiapkan sesuai fitur yang dipakai:
+
+| Kebutuhan | Konfigurasi iOS |
+|---|---|
+| Local notification | Request notification permission dan notification presentation settings |
+| Camera | `NSCameraUsageDescription` pada `Info.plist` |
+| Photo library | `NSPhotoLibraryUsageDescription` pada `Info.plist` bila diperlukan oleh picker |
+| File | UIDocumentPicker/picker configuration sesuai implementation |
+| HTTPS/WSS | App Transport Security dan secure endpoint untuk production |
+
+### 17.4 Host app responsibility
+
+Aplikasi host bertanggung jawab untuk:
+
+- Menjalankan inisialisasi Flutter binding sebelum plugin dipakai.
+- Menyediakan auth provider dan user identity.
+- Meminta permission native pada timing UX yang tepat.
+- Menyediakan icon/channel/branding notification yang diperlukan.
+- Menangani lifecycle aplikasi dan membuka Chat Room ketika local notification ditekan.
+- Menguji konfigurasi pada device Android dan iOS nyata.
+
+SDK menyediakan abstraction dan dokumentasi setup, tetapi tidak boleh mengubah konfigurasi native aplikasi host secara diam-diam.
 
 ## 18. Testing Strategy
 
