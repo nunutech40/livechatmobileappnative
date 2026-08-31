@@ -6,6 +6,18 @@
 
 UI flow lengkap dan pemetaan screenshot tersedia di `LIVE_CHAT_UI_FLOW.md`.
 
+## Current implementation status
+
+UI prototype Tahap 1–2 sudah dipecah berdasarkan feature dan component:
+
+- `LiveChatPage` mengorkestrasi tab, navigation, dan conversation state.
+- `ChatComposer` menerima state serta callback; picker tetap diorkestrasi page selama fase prototype.
+- `ChatMessage` merender ordered `List<MessageContent>` dengan fallback unsupported content.
+- `ArticlePage` mendukung pencarian lokal, empty state, dan clear query.
+- Conversation ended ditentukan dari `ConversationStatus`, bukan conversation ID.
+
+API, repository, WebSocket, upload production, dan auth tetap berada di fase integrasi berikutnya.
+
 ---
 
 ## 1. Purpose
@@ -186,6 +198,7 @@ Renderer yang direncanakan:
 | Text | MVP | Plain text, multiline, long text |
 | Image | MVP | URL, loading, failed image |
 | Document | MVP | File name, extension, size, download/open callback |
+| Image preview | MVP | Large inline preview inside outgoing/incoming bubble |
 | Unsupported | MVP fallback | Tidak boleh membuat timeline crash |
 | Link preview | Future | Hanya jika backend mengirim contract preview |
 | Audio | Future | Hanya jika backend mendukung content type/audio metadata |
@@ -242,6 +255,19 @@ Public events:
 - `onRetry` jika pengiriman gagal.
 
 `ChatComposer` tidak melakukan upload, mengirim WebSocket, membuka picker, atau menampilkan snackbar secara langsung. Semua efek tersebut dilakukan controller melalui callback.
+
+### Attachment preview state
+
+Setelah user memilih foto atau file, composer menampilkan preview attachment di atas input:
+
+- Background orange sesuai outgoing action.
+- Thumbnail untuk image.
+- Extension badge untuk document.
+- File name dan size/date metadata.
+- Tombol remove sebelum message dikirim.
+- Tombol send aktif jika ada text atau pending attachment.
+
+Preview attachment adalah state composer, bukan message bubble, sampai upload dan send berhasil.
 
 ## 8. Conversation Card Design
 

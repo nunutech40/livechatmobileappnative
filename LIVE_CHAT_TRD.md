@@ -12,6 +12,11 @@ Sequence diagram antar host app, SDK, REST API, WebSocket, backend, dan agent te
 
 **Flutter version management:** FVM
 
+**Current implementation status:** API/auth foundation in progress. The SDK
+now has an instance-scoped `LiveChatSdk`, `ApiClient`, host-owned
+`AuthProvider`, typed API exceptions, and a WebSocket boundary. Endpoint
+repositories and the concrete WebSocket protocol remain integration work.
+
 ---
 
 ## 1. Purpose
@@ -63,13 +68,11 @@ live_chat_sdk/
 │   ├── live_chat_sdk.dart
 │   └── src/
 │       ├── core/
-│       │   ├── api/
 │       │   ├── auth/
+│       │   ├── config/
 │       │   ├── errors/
-│       │   ├── models/
-│       │   ├── pagination/
-│       │   ├── repositories/
-│       │   └── websocket/
+│       │   ├── network/
+│       │   └── realtime/
 │       ├── ui/
 │       │   ├── articles/
 │       │   ├── chat_room/
@@ -120,6 +123,29 @@ live_chat_sdk/
 ```
 
 SDK awal tetap berupa Flutter/Dart package meskipun menggunakan dependency plugin seperti image picker, file picker, dan local notification. Repository baru perlu menjadi Flutter plugin hanya jika kita menulis native platform code sendiri.
+
+Struktur UI prototype yang sudah diterapkan:
+
+```text
+lib/src/
+├── models/chat_models.dart
+├── state/live_chat_fixture_providers.dart
+└── ui/
+    ├── live_chat_page.dart
+    ├── articles/article_page.dart
+    ├── chat_room/chat_room_components.dart
+    ├── conversation_list/conversation_list_page.dart
+    ├── new_conversation/
+    │   ├── new_conversation_page.dart
+    │   └── product_icon.dart
+    ├── rating/rating_section.dart
+    └── shared/
+        ├── agent_avatar.dart
+        ├── live_chat_header.dart
+        └── live_chat_tabs.dart
+```
+
+`live_chat_page.dart` hanya mengorkestrasi page-level state dan navigation. Model message menggunakan ordered `List<MessageContent>` dengan renderer per content block dan fallback unsupported content. Fixture provider dipisahkan agar nantinya dapat diganti controller/repository tanpa mengubah kontrak component.
 
 #### FVM commands
 
@@ -335,8 +361,26 @@ Default design: auth dikelola aplikasi host, SDK hanya meminta token saat diperl
 
 ```dart
 abstract interface class AuthProvider {
-  Future<String?> getAccessToken();
+  Future<String?> getAccessToken({bool forceRefresh = false});
 }
+```
+
+`forceRefresh: true` meminta host menjalankan refresh token sesuai mekanisme
+auth-nya. Refresh token dan credential storage tidak pernah dimiliki SDK.
+
+`LiveChatSdk` dibuat satu kali untuk satu user identity. Saat logout atau
+user switch, host harus memanggil `dispose()` lalu membuat instance baru agar
+REST client, realtime connection, dan state memory user lama ikut dibersihkan.
+
+```dart
+final sdk = LiveChatSdk(
+  config: config,
+  authProvider: hostAuthProvider,
+  identity: UserIdentity(userId: user.id, email: user.email),
+);
+
+// Saat logout atau berganti user:
+await sdk.dispose();
 ```
 
 Keuntungan:
@@ -381,7 +425,21 @@ Aturan teknis:
 - Event yang tidak dikenal dicatat sebagai `unknown event`, bukan menyebabkan stream berhenti.
 - Backoff reconnect dan batas percobaan ditentukan pada implementasi final.
 
-### Blocker
+### Current boundary and blocker
+
+Boundary yang sudah tersedia:
+
+```dart
+abstract interface class RealtimeChatClient {
+  Stream<RealtimeEvent> get events;
+  Future<void> connect({required String conversationId});
+  Future<void> disconnect();
+  Future<void> dispose();
+}
+```
+
+Implementasi default saat ini adalah no-op agar UI dan API foundation dapat
+ditest tanpa menebak protokol backend.
 
 URL WebSocket, handshake, auth mechanism, event name, subscribe payload, send payload, ack, read event, dan status event belum tersedia secara lengkap pada OpenAPI YAML. Implementasi WebSocket tidak boleh difinalisasi sebelum kontrak tersebut diberikan atau diobservasi dari web client secara resmi.
 
@@ -599,6 +657,17 @@ Aplikasi host bertanggung jawab untuk:
 - Menguji konfigurasi pada device Android dan iOS nyata.
 
 SDK menyediakan abstraction dan dokumentasi setup, tetapi tidak boleh mengubah konfigurasi native aplikasi host secara diam-diam.
+
+#### Attachment permission flow
+
+Untuk MVP, SDK menggunakan `image_picker` dengan sumber gallery/photo library. SDK memanggil picker ketika user menekan `Tambah Foto`; host app tetap menjadi pemilik konfigurasi native dan OS yang menampilkan permission prompt bila diperlukan.
+
+- Android: system photo picker digunakan pada versi yang mendukungnya; SDK tidak meminta permission storage secara manual untuk gallery MVP.
+- iOS: host app wajib menyediakan `NSPhotoLibraryUsageDescription` di `Info.plist`.
+- Jika user membatalkan picker, SDK tidak menampilkan error.
+- Jika picker gagal atau permission ditolak, SDK menangkap error dan menampilkan state/error yang dapat diteruskan ke host app.
+- File picker menggunakan system document picker Android/iOS; umumnya tidak memerlukan permission storage manual.
+- Kamera belum diaktifkan pada MVP. Jika ditambahkan, host wajib menyediakan `NSCameraUsageDescription` dan konfigurasi camera Android.
 
 ## 18. Testing Strategy
 

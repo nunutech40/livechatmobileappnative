@@ -1,2 +1,12 @@
 # Local project documentation containing sensitive credentials
 LIVE_CHAT_PROJECT_DOCUMENTATION.md
+
+# Flutter generated files
+.dart_tool/
+build/
+.idea/
+*.iml
+.metadata
+
+# FVM symlink/cache (keep the project version file tracked)
+.fvm/
