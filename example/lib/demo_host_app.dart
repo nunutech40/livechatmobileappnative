@@ -2,11 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:livechatmobileappnative/livechatmobileappnative.dart';
 
+import 'demo_partner_auth_client.dart';
+
 const _demoEmail = 'ryanosaffiliete@yopmail.com';
 const _demoPassword = '@Apaaja0';
 
 class DemoHostApp extends StatelessWidget {
-  const DemoHostApp({super.key});
+  const DemoHostApp({super.key, this.useLiveApi = true});
+
+  final bool useLiveApi;
 
   @override
   Widget build(BuildContext context) {
@@ -18,14 +22,16 @@ class DemoHostApp extends StatelessWidget {
           colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFFF5722)),
           useMaterial3: true,
         ),
-        home: const DemoLoginPage(),
+        home: DemoLoginPage(useLiveApi: useLiveApi),
       ),
     );
   }
 }
 
 class DemoLoginPage extends StatefulWidget {
-  const DemoLoginPage({super.key});
+  const DemoLoginPage({required this.useLiveApi, super.key});
+
+  final bool useLiveApi;
 
   @override
   State<DemoLoginPage> createState() => _DemoLoginPageState();
@@ -64,14 +70,37 @@ class _DemoLoginPageState extends State<DemoLoginPage> {
       return;
     }
 
-    final authProvider = _DemoAuthProvider();
+    late final DemoAuthSession session;
+    if (widget.useLiveApi) {
+      try {
+        session = await DemoPartnerAuthClient().login(
+          email: _emailController.text.trim(),
+          password: _passwordController.text,
+        );
+      } on LiveChatException catch (error) {
+        if (mounted) {
+          setState(() => _isLoading = false);
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(error.message)));
+        }
+        return;
+      }
+    } else {
+      session = const DemoAuthSession(
+        accessToken: 'demo-access-token',
+        email: _demoEmail,
+      );
+    }
+
+    final authProvider = _DemoAuthProvider(session.accessToken);
     final sdk = LiveChatSdk(
       config: const LiveChatConfig(
-        restBaseUrl: 'https://api.example.invalid/live-chat-service',
-        websocketUrl: 'wss://api.example.invalid/live-chat-service',
+        restBaseUrl: 'https://api.internal.komerce.my.id/dev/live-chat',
+        websocketUrl: 'wss://api.internal.komerce.my.id/dev/live-chat',
       ),
       authProvider: authProvider,
-      identity: const UserIdentity(userId: 'demo-ryan-oksa', email: _demoEmail),
+      identity: UserIdentity(userId: 'demo-ryan-oksa', email: session.email),
     );
 
     if (!mounted) {
@@ -188,7 +217,10 @@ class _DemoHostHomeState extends State<DemoHostHome> {
         heightFactor: 0.88,
         child: ClipRRect(
           borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-          child: LiveChatPage(onClose: () => Navigator.pop(context)),
+          child: LiveChatPage(
+            repository: widget.sdk.conversations,
+            onClose: () => Navigator.pop(context),
+          ),
         ),
       ),
     );
@@ -264,7 +296,10 @@ class _DemoHostHomeState extends State<DemoHostHome> {
 }
 
 final class _DemoAuthProvider implements AuthProvider {
+  _DemoAuthProvider(this._token);
+
+  final String _token;
+
   @override
-  Future<String?> getAccessToken({bool forceRefresh = false}) async =>
-      'demo-access-token';
+  Future<String?> getAccessToken({bool forceRefresh = false}) async => _token;
 }

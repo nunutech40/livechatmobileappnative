@@ -1,16 +1,20 @@
 import 'package:dio/dio.dart';
 
-import '../auth/auth_provider.dart';
-import '../errors/live_chat_exception.dart';
+import '../../core/auth/auth_provider.dart';
+import '../../core/errors/live_chat_exception.dart';
 import 'token_coordinator.dart';
 
 /// Instance-scoped REST client. Never make this class global or static.
 final class ApiClient {
-  ApiClient(this._dio, {required AuthProvider authProvider})
-    : _authProvider = authProvider,
-      _tokenCoordinator = TokenCoordinator(authProvider);
+  ApiClient(
+    this._dio, {
+    required AuthProvider authProvider,
+    this.ownsDio = true,
+  }) : _authProvider = authProvider,
+       _tokenCoordinator = TokenCoordinator(authProvider);
 
   final Dio _dio;
+  final bool ownsDio;
   final AuthProvider _authProvider;
   final TokenCoordinator _tokenCoordinator;
   bool _closed = false;
@@ -81,7 +85,7 @@ final class ApiClient {
   Future<void> close() async {
     _closed = true;
     _tokenCoordinator.clear();
-    _dio.close(force: true);
+    if (ownsDio) _dio.close(force: true);
   }
 
   LiveChatException _mapError(DioException error) {

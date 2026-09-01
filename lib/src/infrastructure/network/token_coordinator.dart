@@ -1,4 +1,4 @@
-import '../auth/auth_provider.dart';
+import '../../core/auth/auth_provider.dart';
 
 /// Coordinates concurrent token refreshes so one expired token creates one
 /// host refresh operation, not one refresh operation per failed request.

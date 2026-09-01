@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:livechatmobileappnative/livechatmobileappnative.dart';
+import 'package:livechatmobileappnative/src/infrastructure/network/api_client.dart';
+import 'package:livechatmobileappnative/src/infrastructure/repositories/conversation_repository.dart';
 
 void main() {
   test('ApiClient refreshes once after a 401', () async {
@@ -53,6 +55,68 @@ void main() {
 
     expect(() => client.get<void>('/protected'), throwsA(isA<AuthException>()));
     await client.close();
+  });
+
+  test('conversation repository parses API history envelopes', () async {
+    final dio = Dio();
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          final messageResponse = options.path.endsWith('/messages');
+          handler.resolve(
+            Response<Map<String, dynamic>>(
+              requestOptions: options,
+              statusCode: 200,
+              data: {
+                'meta': {'code': 200},
+                'data': [
+                  messageResponse
+                      ? {
+                          'id': 'message-1',
+                          'created_at': '2026-08-31T07:00:00Z',
+                          'sender': {
+                            'email': 'agent@example.com',
+                            'is_agent': true,
+                          },
+                          'message': [
+                            {'type': 'text', 'content': 'Halo dari agent'},
+                          ],
+                        }
+                      : {
+                          'id': 'conversation-1',
+                          'status': 'open',
+                          'ticket_number': 623,
+                          'last_message': {
+                            'status': 'sent',
+                            'created_at': '2026-08-31T07:00:00Z',
+                            'message': [
+                              {'type': 'text', 'content': 'Halo dari agent'},
+                            ],
+                          },
+                        },
+                ],
+              },
+            ),
+          );
+        },
+      ),
+    );
+    final api = ApiClient(dio, authProvider: _TestAuthProvider());
+    final repository = ConversationRepositoryImpl(
+      api: api,
+      identity: const UserIdentity(userId: 'user-1', email: 'user@example.com'),
+    );
+
+    final conversations = await repository.getUserConversations();
+    final messages = await repository.getConversationMessages(
+      conversationId: 'conversation-1',
+    );
+
+    expect(conversations.items.single.ticket, 'No Ticket: 623');
+    expect(conversations.items.single.preview, 'Halo dari agent');
+    expect(messages.items.single.text, 'Halo dari agent');
+    expect(messages.items.single.variant, MessageBubbleVariant.incoming);
+    await api.close();
   });
 
   test('message model supports ordered mixed content', () {

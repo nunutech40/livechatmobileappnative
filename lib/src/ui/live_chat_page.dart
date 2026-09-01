@@ -4,8 +4,9 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
-import '../models/chat_models.dart';
-import '../state/live_chat_fixture_providers.dart';
+import '../domain/models/chat_models.dart';
+import '../domain/ports/conversation_api.dart';
+import '../application/state/live_chat_fixture_providers.dart';
 import 'articles/article_page.dart';
 import 'chat_room/chat_composer.dart';
 import 'chat_room/chat_room_components.dart';
@@ -16,9 +17,10 @@ import 'shared/live_chat_header.dart';
 import 'shared/live_chat_tabs.dart';
 
 class LiveChatPage extends ConsumerStatefulWidget {
-  const LiveChatPage({super.key, this.onClose});
+  const LiveChatPage({super.key, this.onClose, this.repository});
 
   final VoidCallback? onClose;
+  final ConversationRepository? repository;
 
   @override
   ConsumerState<LiveChatPage> createState() => _LiveChatPageState();
@@ -28,6 +30,30 @@ class _LiveChatPageState extends ConsumerState<LiveChatPage> {
   final _providerScopeKey = Object();
   String? _selectedConversation;
   ConversationStatus? _selectedConversationStatus;
+  List<ConversationPreview>? _conversations;
+  bool _isLoadingConversations = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.repository != null) {
+      _loadConversations();
+    }
+  }
+
+  Future<void> _loadConversations() async {
+    setState(() => _isLoadingConversations = true);
+    try {
+      final page = await widget.repository!.getUserConversations();
+      if (!mounted) return;
+      setState(() => _conversations = page.items);
+    } catch (_) {
+      // Keep the fixture visible for UI review while API integration is in
+      // progress. The production controller will expose this as typed state.
+    } finally {
+      if (mounted) setState(() => _isLoadingConversations = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -39,6 +65,7 @@ class _LiveChatPageState extends ConsumerState<LiveChatPage> {
           _selectedConversation = null;
           _selectedConversationStatus = null;
         }),
+        repository: widget.repository,
       );
     }
 
@@ -64,6 +91,8 @@ class _LiveChatPageState extends ConsumerState<LiveChatPage> {
               Expanded(
                 child: tab == LiveChatTab.conversations
                     ? ConversationListPage(
+                        conversations: _conversations,
+                        isLoading: _isLoadingConversations,
                         onConversationTap: (conversation) {
                           setState(() {
                             _selectedConversation = conversation.id;
@@ -110,11 +139,13 @@ class ChatRoomPage extends ConsumerStatefulWidget {
     required this.conversationId,
     required this.status,
     required this.onBack,
+    this.repository,
   });
 
   final String conversationId;
   final ConversationStatus status;
   final VoidCallback onBack;
+  final ConversationRepository? repository;
 
   @override
   ConsumerState<ChatRoomPage> createState() => _ChatRoomPageState();
@@ -131,6 +162,26 @@ class _ChatRoomPageState extends ConsumerState<ChatRoomPage> {
   void initState() {
     super.initState();
     _messages = [...ref.read(messagesProvider(widget.conversationId))];
+    if (widget.repository != null) {
+      _loadMessages();
+    }
+  }
+
+  Future<void> _loadMessages() async {
+    try {
+      final page = await widget.repository!.getConversationMessages(
+        conversationId: widget.conversationId,
+      );
+      if (mounted) {
+        setState(() {
+          _messages
+            ..clear()
+            ..addAll(page.items);
+        });
+      }
+    } catch (_) {
+      // Keep fixture messages when the API is unavailable during preview.
+    }
   }
 
   @override

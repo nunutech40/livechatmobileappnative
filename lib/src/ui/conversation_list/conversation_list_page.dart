@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../models/chat_models.dart';
-import '../../state/live_chat_fixture_providers.dart';
+import '../../domain/models/chat_models.dart';
+import '../../application/state/live_chat_fixture_providers.dart';
 import '../live_chat_theme.dart';
 import '../shared/agent_avatar.dart';
 
@@ -11,14 +11,30 @@ class ConversationListPage extends ConsumerWidget {
     super.key,
     required this.onConversationTap,
     required this.onNewChat,
+    this.conversations,
+    this.isLoading = false,
   });
 
   final ValueChanged<ConversationPreview> onConversationTap;
   final VoidCallback onNewChat;
+  final List<ConversationPreview>? conversations;
+  final bool isLoading;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final conversations = ref.watch(conversationsProvider);
+    final List<ConversationPreview> resolvedConversations =
+        conversations ?? ref.watch(conversationsProvider);
+    final conversationCards = resolvedConversations
+        .map(
+          (item) => Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: ConversationCard(
+              conversation: item,
+              onTap: () => onConversationTap(item),
+            ),
+          ),
+        )
+        .toList();
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
       children: [
@@ -52,15 +68,13 @@ class ConversationListPage extends ConsumerWidget {
           ],
         ),
         const Divider(height: 20),
-        ...conversations.map(
-          (item) => Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: ConversationCard(
-              conversation: item,
-              onTap: () => onConversationTap(item),
-            ),
-          ),
-        ),
+        if (isLoading)
+          const Padding(
+            padding: EdgeInsets.all(32),
+            child: Center(child: CircularProgressIndicator()),
+          )
+        else
+          ...conversationCards,
       ],
     );
   }

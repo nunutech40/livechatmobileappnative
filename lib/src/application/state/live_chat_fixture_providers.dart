@@ -1,6 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../models/chat_models.dart';
+import '../../domain/models/chat_models.dart';
 
 /// Scoped by an SDK/page instance key so multiple Live Chat widgets do not
 /// share their selected tab.

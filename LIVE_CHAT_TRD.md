@@ -15,7 +15,8 @@ Sequence diagram antar host app, SDK, REST API, WebSocket, backend, dan agent te
 **Current implementation status:** API/auth foundation in progress. The SDK
 now has an instance-scoped `LiveChatSdk`, `ApiClient`, host-owned
 `AuthProvider`, typed API exceptions, and a WebSocket boundary. Endpoint
-repositories and the concrete WebSocket protocol remain integration work.
+repository parsing for user conversations and message history is now present.
+The concrete WebSocket protocol remains integration work.
 
 ---
 
@@ -71,8 +72,15 @@ live_chat_sdk/
 │       │   ├── auth/
 │       │   ├── config/
 │       │   ├── errors/
+│       │   └── sdk/
+│       ├── domain/
+│       │   ├── models/
+│       │   └── ports/
+│       ├── application/
+│       │   └── state/
+│       ├── infrastructure/
 │       │   ├── network/
-│       │   └── realtime/
+│       │   └── repositories/
 │       ├── ui/
 │       │   ├── articles/
 │       │   ├── chat_room/
@@ -124,12 +132,28 @@ live_chat_sdk/
 
 SDK awal tetap berupa Flutter/Dart package meskipun menggunakan dependency plugin seperti image picker, file picker, dan local notification. Repository baru perlu menjadi Flutter plugin hanya jika kita menulis native platform code sendiri.
 
-Struktur UI prototype yang sudah diterapkan:
+Struktur package saat ini:
 
 ```text
 lib/src/
-├── models/chat_models.dart
-├── state/live_chat_fixture_providers.dart
+├── core/
+│   ├── auth/auth_provider.dart
+│   ├── config/live_chat_config.dart
+│   ├── errors/live_chat_exception.dart
+│   └── sdk/live_chat_sdk.dart
+├── domain/
+│   ├── models/chat_models.dart
+│   └── ports/
+│       ├── conversation_api.dart
+│       ├── conversation_repository.dart
+│       └── realtime_chat_client.dart
+├── application/
+│   └── state/live_chat_fixture_providers.dart
+├── infrastructure/
+│   ├── network/
+│   │   ├── api_client.dart
+│   │   └── token_coordinator.dart
+│   └── repositories/conversation_repository.dart
 └── ui/
     ├── live_chat_page.dart
     ├── articles/article_page.dart
@@ -145,7 +169,18 @@ lib/src/
         └── live_chat_tabs.dart
 ```
 
-`live_chat_page.dart` hanya mengorkestrasi page-level state dan navigation. Model message menggunakan ordered `List<MessageContent>` dengan renderer per content block dan fallback unsupported content. Fixture provider dipisahkan agar nantinya dapat diganti controller/repository tanpa mengubah kontrak component.
+`core` berisi shared SDK foundation, lifecycle, konfigurasi, auth contract, dan
+typed errors. `domain` berisi model dan port/interface yang tidak bergantung
+pada API implementation. `application` berisi orchestration/state feature. `infrastructure`
+berisi adapter Dio, repository API, konfigurasi transport, dan implementasi
+teknis lainnya. `ui` berisi widget dan page Flutter. `live_chat_sdk.dart`
+menjadi composition root yang menghubungkan semua layer.
+
+`live_chat_page.dart` hanya mengorkestrasi page-level state dan navigation.
+Model message menggunakan ordered `List<MessageContent>` dengan renderer per
+content block dan fallback unsupported content. Fixture provider dipisahkan
+agar nantinya dapat diganti controller/repository tanpa mengubah kontrak
+component.
 
 #### FVM commands
 
@@ -163,6 +198,78 @@ fvm flutter run
 `example/` berfungsi sebagai host app development untuk mock auth, preview UI, mock/live API environment, dan pengujian Android/iOS. Aplikasi kantor yang sebenarnya menjadi host terpisah pada tahap integrasi.
 
 ## 5. Layered Architecture
+
+### 5.1 Architecture flow — Ports & Adapters
+
+```mermaid
+flowchart LR
+    Host[Host App\nlogin, refresh, logout] -->|AuthProvider + UserIdentity| Core[Core SDK\nLiveChatSdk]
+    UI[Flutter UI] -->|event / intent| App[Application\nRiverpod Notifier / Use Case]
+    App -->|depends on| Ports[Domain Ports\nRepository / Realtime]
+    Core --> App
+    Core --> Infra[Infrastructure Adapters]
+    Infra -->|implements| Ports
+    Infra --> Network[ApiClient + Dio]
+    Infra --> Repo[Conversation Repository]
+    Infra --> WS[WebSocket Client]
+    Network --> REST[REST API]
+    WS --> Realtime[WebSocket Backend]
+    Ports --> Models[Domain Models]
+    Repo --> Models
+```
+
+Aturan dependency utama:
+
+```text
+UI → Application → Domain Ports ← Infrastructure
+                         ↑
+                    Domain Models
+
+Core SDK menghubungkan dependency melalui composition root.
+```
+
+Domain tidak boleh mengimpor Dio, Flutter, WebSocket package, atau detail
+endpoint. Infrastructure boleh bergantung pada domain contract, tetapi domain
+tidak boleh bergantung balik pada infrastructure implementation.
+
+### 5.2 Runtime request flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant UI
+    participant Notifier as Riverpod Notifier
+    participant Port as ConversationRepository port
+    participant Impl as API Repository adapter
+    participant API as ApiClient / Dio
+    participant Backend as REST API
+
+    User->>UI: Tap refresh / buka history
+    UI->>Notifier: dispatch event
+    Notifier->>Port: getUserConversations()
+    Port->>Impl: resolve implementation
+    Impl->>API: GET conversations/user
+    API->>Backend: Bearer access token
+    Backend-->>API: JSON response
+    API-->>Impl: HTTP response
+    Impl-->>Notifier: ConversationPage
+    Notifier-->>UI: loading → data/error
+```
+
+### 5.3 Composition and user lifecycle
+
+```mermaid
+flowchart TD
+    Login[Host login] --> Session[Host auth session]
+    Session --> Identity[UserIdentity]
+    Session --> Provider[AuthProvider]
+    Identity --> SDK[Create LiveChatSdk]
+    Provider --> SDK
+    SDK --> Repositories[Identity-aware repositories]
+    SDK --> Client[Instance-scoped ApiClient]
+    Logout[Host logout / user switch] --> Dispose[await sdk.dispose()]
+    Dispose --> New[Create SDK instance for next user]
+```
 
 ```text
 Host Flutter App
@@ -355,6 +462,14 @@ API wrapper memiliki bentuk umum:
 - Repository mengembalikan page data dan cursor berikutnya.
 - UI tidak boleh mengelola cursor secara langsung.
 
+Implementasi awal tersedia melalui `ConversationRepository` untuk:
+
+- `GET /api/v1/conversations/user`
+- `GET /api/v1/conversations/{id}/messages`
+
+Mapper menerima response envelope `meta` + `data`, mengubah status/message
+menjadi domain model, dan mengembalikan cursor item terakhir.
+
 ## 9. Authentication Design
 
 Default design: auth dikelola aplikasi host, SDK hanya meminta token saat diperlukan.
@@ -367,6 +482,15 @@ abstract interface class AuthProvider {
 
 `forceRefresh: true` meminta host menjalankan refresh token sesuai mekanisme
 auth-nya. Refresh token dan credential storage tidak pernah dimiliki SDK.
+
+Untuk example app Affiliate environment dev, `DemoPartnerAuthClient` di dalam
+`example/` menggunakan
+server URL `https://dev.affiliate-api.komerce.my.id` dengan endpoint
+`POST /api/v1/auth/login`. Payload mengikuti Web Client Affiliate:
+`username_email`, `password`, dan `fcm_token`. Token dibaca dari
+`data.access_token`. `fcm_token` wajib dikirim oleh service Affiliate; pada
+example digunakan placeholder non-push. Host production sebaiknya memasukkan
+FCM token device yang aktual melalui client/auth adapter-nya sendiri.
 
 `LiveChatSdk` dibuat satu kali untuk satu user identity. Saat logout atau
 user switch, host harus memanggil `dispose()` lalu membuat instance baru agar

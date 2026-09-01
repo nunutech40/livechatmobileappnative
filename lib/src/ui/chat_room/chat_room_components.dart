@@ -1,7 +1,7 @@
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:flutter/material.dart';
 
-import '../../models/chat_models.dart';
+import '../../domain/models/chat_models.dart';
 import '../live_chat_theme.dart';
 import '../shared/agent_avatar.dart';
 

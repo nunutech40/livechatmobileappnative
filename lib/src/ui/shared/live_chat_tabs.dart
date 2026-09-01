@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../models/chat_models.dart';
+import '../../domain/models/chat_models.dart';
 import '../live_chat_theme.dart';
 
 class LiveChatTabs extends StatelessWidget {

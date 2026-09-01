@@ -1,5 +1,5 @@
 export 'live_chat_sdk.dart';
-export 'src/models/chat_models.dart';
+export 'src/domain/models/chat_models.dart';
 export 'src/ui/articles/article_page.dart';
 export 'src/ui/chat_room/chat_room_components.dart';
 export 'src/ui/chat_room/chat_composer.dart';
